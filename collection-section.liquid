@@ -1,0 +1,243 @@
+<div
+  id="CollectionAjaxRoot-{{ section.id }}"
+  class="aaaa listing-order-and-filter p-b-60"
+  data-section-id="{{ section.id }}"
+  data-collection-id="{{ collection.id | prepend: 'gid://shopify/Collection/' }}"
+>
+  <div class="collection-loading" style="display:none; padding:20px; text-align:center;">
+    Loading products...
+  </div>
+
+  {% unless collection.metafields.custom.hide_thumbnail_filtering %}
+    <div class="collection--filters">
+      <div class="row">
+        <div class="col col-xs-12 col-md-3">
+          <button class="button button--image" sorter sortby="color" order="asc">Sort by Color</button>
+        </div>
+        <div class="col col-xs-12 col-md-3">
+          <button class="button button--image" sorter sortby="name" order="asc">Sort by Name</button>
+        </div>
+        <div class="col col-xs-12 col-md-3">
+          <button class="button button--image" sorter sortby="number" order="asc">Sort by Number</button>
+        </div>
+        <div class="col col-xs-12 col-md-3">
+          <button class="button button--image" sorter sortby="instock" order="valid">Show In Stock</button>
+          <button class="button button--image" sorter sortby="instock" order="all">Show All Colors</button>
+        </div>
+      </div>
+    </div>
+  {% endunless %}
+
+  <div class="collection-row row p-t-30" id="collection-grid">
+    {%- comment -%}
+      Renderizado inicial por Liquid (primeros 48 productos en orden default)
+      El JS reemplazará esto con los datos de nuestra API ya ordenados.
+    {%- endcomment -%}
+    {%- for product in collection.products limit: 48 -%}
+      {% unless product.title contains 'Free - ' %}
+        <div class="col col-md-3 col-xs-6 col-xxs-12">
+          {% render 'common__product-thumbnail', product: product, viewing_in_collection: true %}
+        </div>
+      {% endunless %}
+    {%- endfor -%}
+  </div>
+
+  <div id="collection-pagination" class="p-t-30" style="text-align:center;"></div>
+</div>
+
+<script>
+(function () {
+  var API_URL       = "{{ shop.metafields.custom.search_api_url | default: 'https://TU-APP.onrender.com' }}";
+  var ROOT          = document.getElementById("CollectionAjaxRoot-{{ section.id }}");
+  var GRID          = document.getElementById("collection-grid");
+  var PAGINATION    = document.getElementById("collection-pagination");
+  var LOADING       = ROOT ? ROOT.querySelector(".collection-loading") : null;
+  var COLLECTION_ID = ROOT ? ROOT.getAttribute("data-collection-id") : null;
+  var LIMIT         = 48;
+
+  if (!ROOT || !COLLECTION_ID) return;
+
+  // ── Estado desde URL ────────────────────────────────────────────────────────
+  function getState() {
+    var u = new URL(window.location.href);
+    return {
+      sortby:  u.searchParams.get("sortby") || "color",
+      order:   u.searchParams.get("order")  || "asc",
+      instock: u.searchParams.get("instock") === "true",
+      page:    parseInt(u.searchParams.get("page") || "1", 10),
+    };
+  }
+
+  function setUrl(patches) {
+    var u = new URL(window.location.href);
+    Object.keys(patches).forEach(function(k) {
+      if (patches[k] === null) {
+        u.searchParams.delete(k);
+      } else {
+        u.searchParams.set(k, patches[k]);
+      }
+    });
+    window.history.pushState({}, "", u.toString());
+  }
+
+  // ── Llamar a nuestra API ────────────────────────────────────────────────────
+  async function fetchProducts(state) {
+    var params = new URLSearchParams({
+      collection: COLLECTION_ID,
+      sortBy:     state.sortby,
+      order:      state.order,
+      page:       state.page,
+      limit:      LIMIT,
+    });
+    if (state.instock) params.set("instock", "true");
+
+    var url = API_URL + "/api/products?" + params.toString();
+    var res = await fetch(url);
+    if (!res.ok) throw new Error("API error " + res.status);
+    return await res.json();
+  }
+
+  // ── Render de un producto ───────────────────────────────────────────────────
+  // Usamos la imagen y datos del producto desde la API para renderizar
+  // igual que lo haría Liquid. Si tienes un snippet complejo puedes
+  // ajustar este HTML para que coincida con tu common__product-thumbnail.
+  function renderProduct(p) {
+    var price = p.price_min
+      ? (p.price_min / 100).toFixed(2)  // Shopify guarda en centavos en REST, en GraphQL es decimal
+      : "0.00";
+
+    // Intentamos que el precio se vea como en tu tema
+    var priceFormatted = "$" + parseFloat(p.price_min || 0).toFixed(2);
+
+    var soldOut = !p.available
+      ? '<span class="product-badge product-badge--sold-out">Sold Out</span>'
+      : "";
+
+    return (
+      '<div class="col col-md-3 col-xs-6 col-xxs-12">' +
+        '<div class="product-thumbnail">' +
+          '<a href="/products/' + p.handle + '">' +
+            (p.image_src
+              ? '<img src="' + p.image_src + '" alt="' + p.title.replace(/"/g, "&quot;") + '" loading="lazy">'
+              : '<div class="product-thumbnail__no-image"></div>') +
+          "</a>" +
+          soldOut +
+          '<div class="product-thumbnail__info">' +
+            '<a href="/products/' + p.handle + '" class="product-thumbnail__title">' + p.title + "</a>" +
+            '<div class="product-thumbnail__price">' + priceFormatted + "</div>" +
+          "</div>" +
+        "</div>" +
+      "</div>"
+    );
+  }
+
+  // ── Render paginación ───────────────────────────────────────────────────────
+  function renderPagination(data, state) {
+    if (data.pages <= 1) { PAGINATION.innerHTML = ""; return; }
+
+    var html = "";
+    if (state.page > 1) {
+      html += '<button class="button" onclick="goToPage(' + (state.page - 1) + ')">← Prev</button> ';
+    }
+    html += '<span style="margin:0 12px;">Página ' + state.page + ' de ' + data.pages + ' (' + data.total + ' productos)</span>';
+    if (state.page < data.pages) {
+      html += ' <button class="button" onclick="goToPage(' + (state.page + 1) + ')">Next →</button>';
+    }
+    PAGINATION.innerHTML = html;
+  }
+
+  // ── Cargar y renderizar ─────────────────────────────────────────────────────
+  var loading = false;
+
+  async function load(state) {
+    if (loading) return;
+    loading = true;
+
+    if (LOADING) LOADING.style.display = "block";
+
+    try {
+      var data = await fetchProducts(state);
+
+      // Renderizar productos
+      GRID.innerHTML = data.products.map(renderProduct).join("");
+
+      // Paginación
+      renderPagination(data, state);
+
+      // Scroll arriba si cambiamos página
+      if (state.page > 1) {
+        ROOT.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+
+    } catch (err) {
+      console.error("[search-app] Error:", err);
+      // Si falla la API, no hacemos nada — queda el render de Liquid
+    } finally {
+      if (LOADING) LOADING.style.display = "none";
+      loading = false;
+    }
+  }
+
+  // ── Botones de sort ─────────────────────────────────────────────────────────
+  function bindButtons() {
+    var state = getState();
+
+    ROOT.querySelectorAll("button[sorter]").forEach(function(btn) {
+      var btnSortby = (btn.getAttribute("sortby") || "color").toLowerCase();
+      var btnOrder  = (btn.getAttribute("order")  || "asc").toLowerCase();
+
+      // Marcar botón activo
+      var isActive = false;
+      if (btnSortby === "instock" && state.instock && btnOrder === "valid") isActive = true;
+      if (btnSortby === "instock" && !state.instock && btnOrder === "all") isActive = true;
+      if (btnSortby !== "instock" && state.sortby === btnSortby) isActive = true;
+      if (isActive) btn.classList.add("is-active");
+
+      btn.addEventListener("click", function(e) {
+        e.preventDefault();
+        var newState = getState();
+
+        if (btnSortby === "instock") {
+          if (btnOrder === "valid") {
+            newState.instock = true;
+          } else {
+            newState.instock = false;
+          }
+          newState.page = 1;
+          setUrl({ instock: newState.instock ? "true" : null, page: null });
+        } else {
+          // Toggle asc/desc si mismo sortby
+          if (newState.sortby === btnSortby) {
+            newState.order = newState.order === "asc" ? "desc" : "asc";
+          } else {
+            newState.sortby = btnSortby;
+            newState.order  = btnOrder;
+          }
+          newState.page = 1;
+          setUrl({ sortby: newState.sortby, order: newState.order, page: null });
+        }
+
+        load(newState);
+      });
+    });
+  }
+
+  // ── Paginación global ───────────────────────────────────────────────────────
+  window.goToPage = function(page) {
+    var state = getState();
+    state.page = page;
+    setUrl({ page: page });
+    load(state);
+  };
+
+  // ── Manejar navegación con back/forward del browser ─────────────────────────
+  window.addEventListener("popstate", function() {
+    load(getState());
+  });
+
+  // ── Init ────────────────────────────────────────────────────────────────────
+  bindButtons();
+  load(getState());
+
+})();
+</script>
