@@ -8,7 +8,7 @@ services:
       - key: SHOP_DOMAIN
         value: wool-and-company-dev-2-test.myshopify.com
       - key: ACCESS_TOKEN
-        value: PONER_EN_RENDER_DASHBOARD
+        value: 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
       - key: WEBHOOK_SECRET
         generateValue: true
       - key: ADMIN_KEY
