@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: shopify-search-app
+    env: node
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: SHOP_DOMAIN
+        value: wool-and-company-dev-2-test.myshopify.com
+      - key: ACCESS_TOKEN
+        value: PONER_EN_RENDER_DASHBOARD
+      - key: WEBHOOK_SECRET
+        generateValue: true
+      - key: ADMIN_KEY
+        generateValue: true
+      - key: API_VERSION
+        value: "2024-10"
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: shopify-search-db
+          property: connectionString
+
+databases:
+  - name: shopify-search-db
+    plan: free
